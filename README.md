@@ -88,5 +88,5 @@ Then the query agent creates a structured request to redshift and a followup req
 - I had no idea what "Populate Redshift with both structured data and vector embeddings" meant, so I just duplicated the OpenSearch stored embeddings into Redshift.
 
 ## TODO
-- Data generation updates
+- Configure S3 bucket
 - Figure out how to do text chunking
