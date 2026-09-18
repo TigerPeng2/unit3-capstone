@@ -24,7 +24,7 @@ def cmd_list_sources(args):
     objects = list_s3_objects(S3_ARN, args.regex)
 
     if objects:
-        print("List of sources")
+        print("List of Sources: \n")
         for obj in objects:
             print(obj)
     else:
@@ -59,8 +59,8 @@ def cmd_add_sources(args):
         return 1
 
     for source_file in source_files:
-        upload_to_s3(S3_ARN, str(source_file))
-        print(f"Confirmed upload: {source_file}")
+        upload_arn = upload_to_s3(S3_ARN, str(source_file))
+        print(f"Confirmed upload: {source_file} to AWS: {upload_arn}")
 
     return 0
 

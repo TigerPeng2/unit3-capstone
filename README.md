@@ -20,10 +20,14 @@ Then configure your AWS credentials using
 
 `aws configure`
 
-Ensure that your IAM identity has the proper permissions to generate and configure all the necessary resources for this project: S3 Buckets, Lambda Functions, Textract Instances, OpenSearch services, Redshift Warehouses, RDS Databases.
-
 The information that you are required to put in the .env:
 - GEMINI_API_KEY - to allow for data generation as well as orchestration calls for the query interface
+
+### AWS Setup
+You will have to insert the following in the .env as it relates to AWS resources:
+- S3_ARN - the ARN of the S3 bucket for the RAG object store
+
+Ensure that your IAM identity has the proper permissions to configure all the necessary resources for this project: S3 Buckets, Lambda Functions, Textract Instances, OpenSearch services, Redshift Warehouses, RDS Databases.
 
 ## Generating Data
 To generate the artificial data that will be inserted into the system, run:
