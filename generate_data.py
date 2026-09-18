@@ -1,219 +1,266 @@
-import sqlite3
 import os
+import random
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import openai
 from openai import OpenAI
-import random
-from datetime import datetime, timedelta
+import pandas as pd
+import math
+import markdown
+import json
+from weasyprint import HTML
+
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL_NAME = "gemini-3.5-flash-lite"
+OUTPUT_DIR = "./data"
+
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
+else:
+    print(f"{OUTPUT_DIR} already exists. Skipping creation.")
 
 # ----- Generate quantitative data -----
-conn = sqlite3.connect("data/delight.db")
-cur = conn.cursor()
-
 print("Generating quantitative data...")
-
-print("Creating regions table...")
-cur.execute("""
-CREATE TABLE regions (
-    region_id INTEGER PRIMARY KEY,
-    region_code TEXT UNIQUE,
-    region_name TEXT
-);
-""")
-
-REGIONS = [
-    ("US-NE", "United States - Northeast"),
-    ("US-W", "United States - West"),
-    ("US-MW", "United States - Midwest"),
-    ("US-S", "United States - South")
-]
-
-for region_id, (region_code, region_name) in enumerate(REGIONS, start=1):
-    cur.execute("INSERT OR IGNORE INTO regions (region_id, region_code, region_name) VALUES (?, ?, ?)", (region_id, region_code, region_name))
 
 START_YEAR = 2022
 END_YEAR = 2025
 
-# Revenue by region (monthly)
-print("Creating revenues table...")
-cur.execute("""
-CREATE TABLE revenues (
-    id INTEGER PRIMARY KEY,
-    region_code TEXT REFERENCES regions(region_code),
-    date TEXT,
-    amount REAL
-);
-""")
+def generate_random_date(year=None, month=None):
+    if not year and not month:
+        year = random.randint(START_YEAR, END_YEAR)
+        month = random.randint(1, 12)
+    elif year and not month:
+        month = random.randint(1, 12)
 
-start_revenue = {}
+    day = random.randint(1, 29) if (month == 2 and (year % 4 == 0)) \
+            else random.randint(1, 28) if month == 2 \
+                else random.randint(1, 30) if month in [4, 6, 9, 11] \
+                    else random.randint(1, 31)
 
-for region_code, _ in REGIONS:
-    curr_amt = random.randint(20000, 500000)
-    start_revenue[region_code] = curr_amt
-    for year in range(START_YEAR, END_YEAR + 1):
-        for month in range(1, 13):
-            date = f"{year}-{month:02d}"
-            cur.execute("INSERT INTO revenues (region_code, date, amount) VALUES (?, ?, ?)", (region_code, date, curr_amt))
-            curr_amt = round(curr_amt * random.uniform(0.95, 1.08), 2)
-        
-# Costs by category by region (monthly)
-print("Creating costs table...")
-cur.execute("""
-CREATE TABLE costs (
-    id INTEGER PRIMARY KEY,
-    region_code TEXT REFERENCES regions(region_code),
-    date TEXT,
-    amount REAL
-);
-""")
-
-for region_code, _ in REGIONS:
-    curr_amt = round(start_revenue.get(region_code) * random.uniform(0.8, 0.95), 2)
-    for year in range(START_YEAR, END_YEAR + 1):
-        for month in range(1, 13):
-            date = f"{year}-{month:02d}"
-            cur.execute("INSERT INTO costs (region_code, date, amount) VALUES (?, ?, ?)", (region_code, date, curr_amt))
-            curr_amt = round(curr_amt * random.uniform(0.98, 1.10), 2)
-
-# Sales records
-print("Creating sales table...")
-cur.execute("""
-CREATE TABLE sales (
-    id INTEGER PRIMARY KEY,
-    customer_id INTEGER,
-    date TEXT,
-    region_code TEXT REFERENCES regions(region_code),
-    amount REAL
-);
-""")
-
-def generate_random_date(year, month):
-    day = random.randint(1, 28) if (month == 2 and not year % 4 == 0) \
-        else random.randint(1, 29) if month == 2 \
-            else random.randint(1, 30) if month in [4, 6, 9, 11] \
-                else random.randint(1, 31)
     return f"{year}-{month:02d}-{day:02d}"
 
+def generate_date_after(base_date_str, min_days, max_days):
+    open_duration = timedelta(days=random.randint(min_days, max_days))
+    close_date = datetime.strftime(datetime.strptime(base_date_str, "%Y-%m-%d") + open_duration, "%Y-%m-%d")
+
+    return close_date
+
+REGION_CODES = ["US-NE", "US-W", "US-MW", "US-S"]
+
+regions_dict = {
+    "regionCode": ["US-NE", "US-W", "US-MW", "US-S"],
+    "regionName": ["United States - Northeast", "United States - West", 
+                   "United States - Midwest", "United States - South"]
+}
+
+pd.DataFrame(regions_dict).to_csv(os.path.join(OUTPUT_DIR, "regions.csv"), index=False)
+
+# Sales records
+print("Generating sales data...")
+
+sales_rows = []
 customer_count = 1
-for region_code, _ in REGIONS:
+sales_id = 1
+new_customer_chance = 0.3
+for year in range(START_YEAR, END_YEAR + 1):
+    for month in range(1, 13):
+        business = random.uniform(0.02, 0.05) # between 20 and 50 customers in a given month
+        while True:
+            if random.random() < business:
+                break # move to next month
+
+            customer_id = math.floor(random.betavariate(5, 2) * customer_count)
+            date = generate_random_date(year=year, month=month)
+            region = random.choice(REGION_CODES)
+            amount = random.randint(1200, 10000)
+
+            if random.random() < new_customer_chance:
+                customer_count += 1 # move to the next customer
+
+            sales_rows.append({
+                "id": sales_id,
+                "customer_id": customer_id,
+                "date": date,
+                "regionCode": region,
+                "amount": amount
+            })
+            
+            sales_id += 1
+
+sales_df = pd.DataFrame(sales_rows)
+
+sales_df.to_csv(os.path.join(OUTPUT_DIR, "sales.csv"), index=False)
+
+# Revenue by region (monthly)
+print("Generating revenues data...")
+
+sales_df["month"] = sales_df["date"].str[:7]
+revenues_df = (
+    sales_df.groupby(["month", "regionCode"], as_index=False)["amount"]
+    .sum()
+    .rename(columns={"month": "date"})
+)
+revenues_df.insert(0, "id", range(1, len(revenues_df) + 1))
+revenues_df = revenues_df.set_index(["date", "regionCode"])
+revenues_df.to_csv(os.path.join(OUTPUT_DIR, "revenues.csv"))
+
+# Costs by region (monthly), based on revenue from the same month.
+print("Generating costs data...")
+
+cost_rows = []
+cost_id = 1
+
+for regionCode in REGION_CODES:
     for year in range(START_YEAR, END_YEAR + 1):
         for month in range(1, 13):
-            sales_total = cur.execute("SELECT amount FROM revenues WHERE region_code = ? AND date = ?", 
-                                    (region_code, f"{year}-{month:02d}")).fetchone()[0]
-            sales_remaining = sales_total
-            while sales_remaining > 0:
-                sale_amt = random.randint(2000, 20000)
-                if sale_amt > sales_remaining:
-                    sale_amt = sales_remaining
+            date = f"{year}-{month:02d}"
+            try:
+                monthly_revenue = revenues_df.loc[(date, regionCode), "amount"]
 
-                date = generate_random_date(year, month)
-                if random.random() < 0.3:
-                    customer_count += 1
-                    cur.execute("INSERT INTO sales (customer_id, date, region_code, amount) VALUES (?, ?, ?, ?)", 
-                                (customer_count, date, region_code, sale_amt))
-                else:
-                    cur.execute("INSERT INTO sales (customer_id, date, region_code, amount) VALUES (?, ?, ?, ?)", 
-                                (random.randint(1, customer_count), date, region_code, sale_amt))
+                cost_rows.append({
+                                "id": cost_id,
+                                "region_code": regionCode,
+                                "date": date,
+                                "amount": round(monthly_revenue * random.uniform(0.8, 0.95), 2),
+                            })
+                cost_id += 1
+            except KeyError:
+                pass
 
-                sales_remaining -= sale_amt
+costs_df = pd.DataFrame(cost_rows)
+costs_df.to_csv(os.path.join(OUTPUT_DIR, "costs.csv"), index=False)
 
 # Employees
-print("Creating employees table...")
-cur.execute("""
-CREATE TABLE employees (
-    id INTEGER PRIMARY KEY,
-    cost_center TEXT,
-    salary REAL,
-    hire_date TEXT
-)
-""")
+print("Generating employees data...")
 
 NUM_EMPLOYEES = 300
-employees = [(random.choice(["finance", "engineering", "sales", "marketing", "hr"]), random.randint(50000, 150000), 
-         generate_random_date(random.randint(2022, 2025), (random.randint(1, 12)))) for _ in range(NUM_EMPLOYEES)]
+employee_rows = []
+for i in range(1, NUM_EMPLOYEES + 1):
+    employee_rows.append({
+        "id": i,
+        "cost_center": random.choice(["finance", "engineering", "sales", "marketing", "hr"]),
+        "salary": random.randint(50000, 150000),
+        "hire_date": generate_random_date()
+    })
 
-cur.executemany("INSERT INTO employees (cost_center, salary, hire_date) VALUES (?, ?, ?)", employees)
+pd.DataFrame(employee_rows).to_csv(os.path.join(OUTPUT_DIR, "employees.csv"), index=False)
 
 # Employee satisfaction polling
-print("Creating employee satisfaction table...")
-cur.execute("""
-CREATE TABLE employee_satisfaction (
-    id INTEGER PRIMARY KEY,
-    employee_id INTEGER REFERENCES employees(id),
-    rating INTEGER
-)
-""")
+print("Generating employee satisfaction data...")
 
+satisfaction_rows = []
 SURVEY_LIKELIHOOD = 0.4
+survey_id = 1
 for employee_id in range(1, NUM_EMPLOYEES + 1):
     if random.random() < SURVEY_LIKELIHOOD:
         rating = random.randint(6, 10)
-        cur.execute("INSERT INTO employee_satisfaction (employee_id, rating) VALUES (?, ?)", (employee_id, rating))
+        satisfaction_rows.append({
+            "id": survey_id,
+            "employee_id": employee_id,
+            "rating": rating
+        })
+
+        survey_id += 1
+        
+pd.DataFrame(satisfaction_rows).to_csv(os.path.join(OUTPUT_DIR, "employee_satisfaction.csv"), index=False)
 
 # Software ticketing
-print("Creating tickets table...")
-cur.execute("""
-CREATE TABLE tickets (
-    id INTEGER PRIMARY KEY,
-    category TEXT,
-    open_date TEXT,
-    close_date TEXT
-)
-""")
+print("Generating software tickets data...")
 
 tickets = []
-for _ in range(200):
-    open_year = random.randint(2022, 2025)
-    open_month = random.randint(1, 12)
-    open_date = generate_random_date(open_year, open_month)
+for i in range(200):
+    open_date = generate_random_date()
+    close_date = generate_date_after(open_date, 1, 21)
+    category = random.choice(["bug", "feature request", "support"])
 
-    open_duration = random.randint(1, 21)
-    close_date = datetime.strftime(datetime.strptime(open_date, "%Y-%m-%d") + timedelta(days=open_duration), "%Y-%m-%d")
-    tickets.append((random.choice(["bug", "feature request", "support"]), open_date, close_date))
+    tickets.append({
+        "id": i,
+        "category": category,
+        "open_date": open_date,
+        "close_date": close_date
+    })
 
-cur.executemany("INSERT INTO tickets (category, open_date, close_date) VALUES (?, ?, ?)", tickets)
+pd.DataFrame(tickets).to_csv(os.path.join(OUTPUT_DIR, "software_tickets.csv"), index=False)
 
 # Expense data - employee id, timestamp, expense amount, cost center
-print("Creating expense tickets table...")
-cur.execute("""
-CREATE TABLE expense_tickets (
-    id INTEGER PRIMARY KEY,
-    employee_id INTEGER REFERENCES employees(id),
-    amount REAL
-)
-""")
+print("Generating expense data...")
 
-expense_tickets = [(random.randint(1, NUM_EMPLOYEES), random.uniform(10, 250)) for _ in range(300)]
-cur.executemany("INSERT INTO expense_tickets (employee_id, amount) VALUES (?, ?)", expense_tickets)
+expense_tickets = [{"id": i,
+                    "employee_id": random.randint(1, NUM_EMPLOYEES), 
+                    "amount": random.uniform(10, 250)
+                    } for i in range(1, NUM_EMPLOYEES + 1)]
 
-conn.commit()
-conn.close()
+pd.DataFrame(expense_tickets).to_csv(os.path.join(OUTPUT_DIR, "expense_tickets.csv"), index=False)
+
+# JSON customer support tickets
+print("Generating customer support tickets data...")
+support_tickets = []
+NUM_SUPPORT_TICKETS = 250
+
+for i in range(NUM_SUPPORT_TICKETS):
+    open_date = generate_random_date()
+    closed = random.choice([True, False])
+    close_date = generate_date_after(open_date, 10, 130) if closed else "N/A"
+    title = f"{random.choice(["Button", "Input", "Billing", "Functionality"])} is {random.choice(["broken", "slow", "outdated", "confusing"])}"
+    messages = []
+
+    # Generate random messages
+    client = True
+    while random.random() < 0.6:
+        if client:
+            if len(messages) == 0:
+                messages.append(title)
+            else:
+                messages.append(random.choice([
+                    "Help please",
+                    "This is really important",
+                    "This has been happening for months",
+                    "It's no big deal",
+                    "Other people have reported this problem",
+                    "It's super disruptive to our business"
+                ]))
+        else:
+            messages.append(random.choice([
+                "Show me your screen",
+                "Please give more detail",
+                "Isn't this a duplicate issue",
+                "No it's not broken",
+                "This is not a priority to fix, sorry"
+            ]))
+        client = not client
+
+    support_tickets.append({
+        "id": i,
+        "title": title,
+        "open_date": open_date,
+        "closed": closed,
+        "close_date": close_date,
+        "messages": messages
+    })
+
+with open(os.path.join(OUTPUT_DIR, "support_tickets.json"), "w") as out:
+    json.dump(support_tickets, out)
 
 # ----- Generate qualitative data -----
 
 print("Generating qualitative data...")
 
-if not os.path.exists("data/docs"):
-    os.makedirs("data/docs")
-else:
-    print("data/docs already exists. Skipping creation.")
-
 # title, filename, description of documents to generate for the qualitative dataset
-DOCS_TO_GEN = [("Security Policy", "security_policy.txt", "This document outlines the security policies and procedures for the organization, including access control, data protection, and incident response."),
-               ("Code Review Process", "code_review_process.txt", "This document describes the code review process, including guidelines for submitting code for review, reviewing code, and providing feedback."),
-               ("Employee Benefits and Perks", "employee_benefits.txt", "This document outlines the employee benefits and perks offered by the organization, including health insurance, retirement plans, and other perks."),
-               ("Customer Satisfaction Guarantee", "customer_satisfaction.txt", "This document describes the organization's customer satisfaction guarantee, including references to the customer complaints process and the company's customer-centric mission statement."),
-               ("Customer Complaint Process", "customer_complaint_process.txt", "This] document outlines the process for handling customer complaints, including how to submit a complaint, how complaints are reviewed and resolved, and the expected response time."),
-               ("Customer Success Strategies", "customer_success_strategies.txt", "This document outlines the strategies and best practices for ensuring customer success, including onboarding, training, and ongoing support."),
-               ("Expense Approval Policy", "expense_approval_policy.txt", "This document outlines the expense approval policy, including when manager approval is needed based on receipt value and expense time.")]
+DOCS_TO_GEN = [("Security Policy", "security_policy.pdf", "This document outlines the security policies and procedures for the organization, including access control, data protection, and incident response."),
+               ("Code Review Process", "code_review_process.pdf", "This document describes the code review process, including guidelines for submitting code for review, reviewing code, and providing feedback."),
+               ("Employee Benefits and Perks", "employee_benefits.pdf", "This document outlines the employee benefits and perks offered by the organization, including health insurance, retirement plans, and other perks."),
+               ("Customer Satisfaction Guarantee", "customer_satisfaction.pdf", "This document describes the organization's customer satisfaction guarantee, including references to the customer complaints process and the company's customer-centric mission statement."),
+               ("Customer Complaint Process", "customer_complaint_process.pdf", "This] document outlines the process for handling customer complaints, including how to submit a complaint, how complaints are reviewed and resolved, and the expected response time."),
+               ("Customer Success Strategies", "customer_success_strategies.pdf", "This document outlines the strategies and best practices for ensuring customer success, including onboarding, training, and ongoing support."),
+               ("Expense Approval Policy", "expense_approval_policy.pdf", "This document outlines the expense approval policy, including when manager approval is needed based on receipt value and expense time."),
+               ("Data Governance Policy", "data_governance_policy.pdf", "This document outlines the data governance policy, including retention, PII policy, requirements for contractors and tooling, as well as required columns for specific types of data.")
+               ]
 
 BASE_PROMPT = "You are a technical writer working at a technology services company called Delight. " \
 "Your task is to generate detailed corporate policy documents based on the descriptions provided. " \
-"Each document should be comprehensive and well-structured."
+"Each document should be comprehensive and well-structured, using markdown conventions."
 
 client = OpenAI(
   api_key=GEMINI_API_KEY,
@@ -222,20 +269,18 @@ client = OpenAI(
 
 for title, filename, description in DOCS_TO_GEN:
     print(f"Generating document: {title}...")
-    prompt = BASE_PROMPT + f"Generate a document titled '{title}' based on the following description: {description}."
+    prompt = f"Generate a document titled '{title}' based on the following description: {description}."
 
     
     response = client.chat.completions.create(
         model=MODEL_NAME,
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that summarizes text."},
+            {"role": "system", "content": BASE_PROMPT},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.2,
+        temperature=0.3,
     )
 
-    # Extract and print the summary
     document_content = response.choices[0].message.content
-    
-    with open(f"data/docs/{filename}", "w") as f:
-        f.write(document_content)
+    html_content = markdown.markdown(document_content, extensions=["tables", "fenced_code"])
+    HTML(string=html_content).write_pdf(os.path.join(OUTPUT_DIR, filename)) # save as pdf
