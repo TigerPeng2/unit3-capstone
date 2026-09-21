@@ -26,8 +26,9 @@ The information that you are required to put in the .env:
 ### AWS Setup
 You will have to insert the following in the .env as it relates to AWS resources:
 - S3_ARN - the ARN of the S3 bucket for the RAG object store
+- LAMBDA_ARN - the ARN of the lambda functions which begins the ingestion process for documents entering the S3 bucket. The script is automatically loaded into the lambda 
 
-Ensure that your IAM identity has the proper permissions to configure all the necessary resources for this project: S3 Buckets, Lambda Functions, Textract Instances, OpenSearch services, Redshift Warehouses, RDS Databases.
+Ensure that your IAM identity has the proper permissions to configure all the necessary resources for this project: S3 Buckets, Lambda Functions, Textract Instances, Redshift Warehouses, RDS Databases.
 
 ## Generating Data
 To generate the artificial data that will be inserted into the system, run:
@@ -66,22 +67,23 @@ The data ingestion pipeline allows for both unstructed (PDF) and structured (CSV
 
 The ingestion process varies by data type.
 
-#### PDF
+#### PDF (NOT FUNCTIONAL, RDS, Opensearch, Not Available)
 
 Data Selection (CLI) -> PDF -> Text (Textract) -> Extracted Text
 
-1. Extracted Text -> Text Chunking -> Embedding (Sentence Transformers) -> Embedding Indexing (OpenSearch) -> Load to Redshift
-2. Extracted Text -> RDS Table (storage with metadata)
+1. Extracted Text -> RDS Table (storage with metadata) -> Text Chunking -> Embedding (Sentence Transformers) -> Embedding Indexing (OpenSearch) -> Load to Redshift
+
+To avoid having to deploy the lambda as a container image, it's relatively lightweight, only textract and loading into RDS, before chunking and transformers is handled on the local machine.
 
 #### CSV / JSON
 Data Selection (CLI) -> Discover Metadata (Glue Crawler) -> ETL (Glue Transform) -> Load to Redshift
 
-### Data Warehouse
-Redshift serves as the data warehouse for this project, storing the the structured data (CSV/JSON), as well as the embedded chunks extracted from PDFs.
+### Data Warehouse (NOT FUNCTIONAL)
+Redshift serves as the data warehouse for this project, storing the the structured data (CSV/JSON), as well as the embedded chunks extracted from PDFs. 
 
 At query time, the agent is capable both of submitting SQL queries against ingested tables, as well as using Redshift's native similarity search to find relevant chunks, using the attached metadata to bring the relevant document into context.
 
-### Query Interface
+### Query Interface (NOT FUNCTIONAL)
 This query interface is largely borrowed from the Unit 2 Capstone, with subcommands for adding data sources, listing data sources, and inputting a query.
 
 The query is input into an orchestrator, which has access to metadata regarding the names and structures of data sources.  
@@ -90,7 +92,8 @@ Then the query agent creates a structured request to redshift and a followup req
 
 ## Notes
 - I had no idea what "Populate Redshift with both structured data and vector embeddings" meant, so I just duplicated the OpenSearch stored embeddings into Redshift.
+- OpenSearch instance creation was not working, and also the spec said to include vector embeddings in RedShift, so I just completely skipped opensearch.
+- I did not have access to RDS, so the text pipeline had to stop at the uploading of files to S3.
 
 ## TODO
-- Configure S3 bucket
-- Figure out how to do text chunking
+- Freeze requirements into pyproject.toml

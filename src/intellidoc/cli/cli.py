@@ -4,6 +4,7 @@ from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
 from intellidoc.aws import upload_to_s3, list_s3_objects
+from intellidoc.aws.lambda_helper import process_document
 
 SUPPORTED_FILE_TYPES = {".json", ".pdf", ".csv"}
 
@@ -61,6 +62,9 @@ def cmd_add_sources(args):
     for source_file in source_files:
         upload_arn = upload_to_s3(S3_ARN, str(source_file))
         print(f"Confirmed upload: {source_file} to AWS: {upload_arn}")
+        # if source_file.suffix.lower() == ".pdf":
+        #     document_id = process_document(source_file.name)
+        #     print(f"Processed document {document_id}: {source_file}")
 
     return 0
 
